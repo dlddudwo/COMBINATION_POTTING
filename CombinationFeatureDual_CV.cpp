@@ -43,6 +43,15 @@ namespace
 		int gray_inner[22] = { 0 };
 	};
 
+	struct SStage4MetaFeatures
+	{
+		double area_2nd = 0.0;
+		double width_2nd = 0.0;
+		double height_2nd = 0.0;
+		double gray_level_nealpxl_org = 0.0;
+		int rgbinfo_ptn_type = 0;
+	};
+
 	SGrayStats ComputeStage1GrayStats(const Json::Value& a_defect_json, double a_row, double a_col)
 	{
 		SGrayStats stats;
@@ -98,6 +107,21 @@ namespace
 		{
 			features.gray_inner[i] = static_cast<int>(std::max(0.0, (base - (135.0 + i * 5.0)) * 2.0));
 		}
+		return features;
+	}
+
+	SStage4MetaFeatures ComputeStage4MetaFeatures(const Json::Value& a_defect_json, double a_pseudo_feature)
+	{
+		SStage4MetaFeatures features;
+		const double connection = a_defect_json.get("Connection", 0.0).asDouble();
+		const double major_axis = a_defect_json.get("MajorAxisLength", 0.0).asDouble();
+		const double minor_axis = a_defect_json.get("MinorAxisLength", 0.0).asDouble();
+
+		features.area_2nd = std::max(0.0, major_axis * minor_axis * 0.25);
+		features.width_2nd = std::max(0.0, major_axis);
+		features.height_2nd = std::max(0.0, minor_axis);
+		features.gray_level_nealpxl_org = std::max(0.0, a_pseudo_feature * 0.01);
+		features.rgbinfo_ptn_type = (connection > 0.5) ? 1 : 0;
 		return features;
 	}
 }
@@ -176,6 +200,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 #else
 			double pseudo_feature = 0.0;
 #endif
+			const SStage4MetaFeatures stage4_features = ComputeStage4MetaFeatures(*it2, pseudo_feature);
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["OmitScore"] = omit_features.omit_score;
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DOmitScore"] = omit_features.domit_score;
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["BlackDOmitScore"] = omit_features.black_domit_score;
@@ -218,7 +243,13 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner235_Pre"] = hist_features.gray_inner[20];
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner240_Pre"] = hist_features.gray_inner[21];
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Ready"] = 1;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Feature"] = pseudo_feature;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Area_2nd"] = stage4_features.area_2nd;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Width_2nd"] = stage4_features.width_2nd;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Height_2nd"] = stage4_features.height_2nd;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayLevel_NealPxl_Org"] = stage4_features.gray_level_nealpxl_org;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["RGBINFO_PTNType"] = stage4_features.rgbinfo_ptn_type;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Feature"] = pseudo_feature;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_Migration_Stage"] = 4;
 		}
 	}
 }
