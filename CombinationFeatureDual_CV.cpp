@@ -6,6 +6,7 @@
 #include "inspectionType.h"
 #include "SharedMemoryCollection.h"
 #include "FeatureName.h"
+#include "Common.h"
 #include "HalconMath.h"
 #include "ClassifierManagerDual.h"
 
@@ -114,6 +115,8 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 
 			const int blob_region_index = (*it2)["Region_Index"].asInt();
 			HObject extract_region;
+			HObject extract_region_origin;
+			HObject region64;
 			if (blob_region_index < 0)
 			{
 				GenRegionPoints(&extract_region, row, col);
@@ -123,12 +126,78 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			{
 				extract_region = shared_memory.GetBlobRegion(a_ctx.panel_id, a_ctx.cam_index, ptn_no - 1, blob_region_index);
 			}
-			UNREFERENCED_PARAMETER(extract_region);
-			UNREFERENCED_PARAMETER(defect_index);
 
-			// Step 2:
-			// - PTN/DEFECT loop and input extraction have been migrated here unchanged in flow.
-			// - Feature calculations and JSON writes will be moved next in step 3.
+			GenRegionPoints(&region64, row, col);
+			DilationRectangle1(region64, &region64, 64, 64);
+			Intersection(region64, region_inspection, &region64);
+
+			if (resize_ratio > 0) extract_region_origin = halcon.ResizeRegion(extract_region, resize_ratio);
+			else extract_region_origin = extract_region;
+
+			HObject ho_intersection;
+			HTuple hv_row_omit, hv_col_omit, hv_area, hv_row_region, hv_col_region, hv_area_region;
+			AreaCenter(extract_region_origin, &hv_area_region, &hv_row_region, &hv_col_region);
+
+			if (halcon.ValidHRegion(ho_omit) == true)
+			{
+				Intersection(ho_omit, extract_region_origin, &ho_intersection);
+				AreaCenter(ho_intersection, &hv_area, &hv_row_omit, &hv_col_omit);
+				double score = hv_area.D() / hv_area_region.D();
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["OmitScore"] = score;
+			}
+			if (halcon.ValidHRegion(ho_domit) == true)
+			{
+				Intersection(ho_domit, extract_region_origin, &ho_intersection);
+				AreaCenter(ho_intersection, &hv_area, &hv_row_omit, &hv_col_omit);
+				double score = hv_area.D() / hv_area_region.D();
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DOmitScore"] = score;
+			}
+			if (halcon.ValidHRegion(ho_black_domit) == true)
+			{
+				Intersection(ho_black_domit, extract_region_origin, &ho_intersection);
+				AreaCenter(ho_intersection, &hv_area, &hv_row_omit, &hv_col_omit);
+				double score = hv_area.D() / hv_area_region.D();
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["BlackDOmitScore"] = score;
+			}
+
+			HTuple hv_pre_average64_omit, hv_pre_dsd64_omit;
+			HTuple hv_pre_average64_domit, hv_pre_dsd64_domit;
+			HTuple hv_pre_average64_black_domit, hv_pre_dsd64_black_domit;
+			Intensity(region64, ho_binarized_omit, &hv_pre_average64_omit, &hv_pre_dsd64_omit);
+			double omit_ratio = hv_pre_average64_omit.D() / 255;
+			Intensity(region64, ho_binarized_domit, &hv_pre_average64_domit, &hv_pre_dsd64_domit);
+			double domit_ratio = hv_pre_average64_domit.D() / 255;
+			Intensity(region64, ho_binarized_black_domit, &hv_pre_average64_black_domit, &hv_pre_dsd64_black_domit);
+			double black_domit_ratio = hv_pre_average64_black_domit.D() / 255;
+
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Omit_Ratio_64"] = omit_ratio;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DOmit_Ratio_64"] = domit_ratio;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Black_DOmit_Ratio_64"] = black_domit_ratio;
+
+			HTuple hv_pre_omit_average, hv_pre_Domit_average = 0.0;
+			HTuple hv_ori_omit_average, hv_ori_Domit_average = 0.0;
+			if (halcon.ValidHRegion(ho_omit) == true)
+			{
+				Intensity(extract_region, arr_ho_original[a_pattern_index.omit], &hv_ori_omit_average, NULL);
+				Intensity(extract_region, arr_ho_pre_processing[a_pattern_index.omit], &hv_pre_omit_average, NULL);
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["OmitAvg_Pre"] = (double)hv_pre_omit_average;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["OmitAvg_Ori"] = (double)hv_ori_omit_average;
+			}
+			if (a_pattern_index.domit != 0)
+			{
+				Intensity(extract_region, arr_ho_original[a_pattern_index.domit], &hv_ori_Domit_average, NULL);
+				Intensity(extract_region, arr_ho_pre_processing[a_pattern_index.domit], &hv_pre_Domit_average, NULL);
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DomitAvg_Pre"] = (double)hv_pre_Domit_average;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DomitAvg_Ori"] = (double)hv_ori_Domit_average;
+			}
+
+			HTuple hv_PreAverage64, hv_PredSd64, hv_PreMin64, hv_PreMax64, hv_PreRange64;
+			MinMaxGray(region64, arr_ho_pre_processing[ptn_no - 1], 0, &hv_PreMin64, &hv_PreMax64, &hv_PreRange64);
+			Intensity(region64, arr_ho_pre_processing[ptn_no - 1], &hv_PreAverage64, &hv_PredSd64);
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayAVG_Pre64"] = (double)hv_PreAverage64;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = (double)hv_PreMin64;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = (double)hv_PreMax64;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = (double)hv_PredSd64;
 		}
 	}
 }
