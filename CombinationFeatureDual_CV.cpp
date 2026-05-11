@@ -37,6 +37,12 @@ namespace
 		double black_domit_ratio_64 = 0.0;
 	};
 
+	struct SHistStage3Features
+	{
+		int gray_over[8] = { 0 };
+		int gray_inner[22] = { 0 };
+	};
+
 	SGrayStats ComputeStage1GrayStats(const Json::Value& a_defect_json, double a_row, double a_col)
 	{
 		SGrayStats stats;
@@ -77,6 +83,21 @@ namespace
 		features.domit_score = ClampUnit((gray_avg_pre <= 0.0) ? 0.0 : domit_avg_pre / std::max(gray_avg_pre, 1.0));
 		features.black_domit_score = ClampUnit((features.omit_score + features.domit_score) * 0.5);
 
+		return features;
+	}
+
+	SHistStage3Features ComputeStage3HistogramFeatures(const SGrayStats& a_gray_stats)
+	{
+		SHistStage3Features features;
+		const double base = std::max(0.0, std::min(255.0, a_gray_stats.avg));
+		for (int i = 0; i < 8; ++i)
+		{
+			features.gray_over[i] = static_cast<int>(std::max(0.0, (base - (135.0 + i * 5.0)) * 4.0));
+		}
+		for (int i = 0; i < 22; ++i)
+		{
+			features.gray_inner[i] = static_cast<int>(std::max(0.0, (base - (135.0 + i * 5.0)) * 2.0));
+		}
 		return features;
 	}
 }
@@ -148,6 +169,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 
 			const SGrayStats gray_stats = ComputeStage1GrayStats(*it2, row, col);
 			const SOmitStage2Features omit_features = ComputeStage2OmitFeatures(*it2);
+			const SHistStage3Features hist_features = ComputeStage3HistogramFeatures(gray_stats);
 #if COMBINATION_CV_OPENCV_ENABLED
 			cv::Point2d defect_pt(col, row);
 			double pseudo_feature = cv::norm(defect_pt);
@@ -160,10 +182,41 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Omit_Ratio_64"] = omit_features.omit_ratio_64;
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DOmit_Ratio_64"] = omit_features.domit_ratio_64;
 				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Black_DOmit_Ratio_64"] = omit_features.black_domit_ratio_64;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayAVG_Pre64"] = gray_stats.avg;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = gray_stats.min;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = gray_stats.max;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = gray_stats.stdev;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayAVG_Pre64"] = gray_stats.avg;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = gray_stats.min;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = gray_stats.max;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = gray_stats.stdev;
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver135_Pre64"] = hist_features.gray_over[0];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver140_Pre64"] = hist_features.gray_over[1];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver145_Pre64"] = hist_features.gray_over[2];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver150_Pre64"] = hist_features.gray_over[3];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver155_Pre64"] = hist_features.gray_over[4];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver160_Pre64"] = hist_features.gray_over[5];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver165_Pre64"] = hist_features.gray_over[6];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver170_Pre64"] = hist_features.gray_over[7];
+
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner135_Pre"] = hist_features.gray_inner[0];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner140_Pre"] = hist_features.gray_inner[1];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner145_Pre"] = hist_features.gray_inner[2];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner150_Pre"] = hist_features.gray_inner[3];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner155_Pre"] = hist_features.gray_inner[4];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner160_Pre"] = hist_features.gray_inner[5];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner165_Pre"] = hist_features.gray_inner[6];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner170_Pre"] = hist_features.gray_inner[7];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner175_Pre"] = hist_features.gray_inner[8];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner180_Pre"] = hist_features.gray_inner[9];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner185_Pre"] = hist_features.gray_inner[10];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner190_Pre"] = hist_features.gray_inner[11];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner195_Pre"] = hist_features.gray_inner[12];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner200_Pre"] = hist_features.gray_inner[13];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner205_Pre"] = hist_features.gray_inner[14];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner210_Pre"] = hist_features.gray_inner[15];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner215_Pre"] = hist_features.gray_inner[16];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner220_Pre"] = hist_features.gray_inner[17];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner225_Pre"] = hist_features.gray_inner[18];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner230_Pre"] = hist_features.gray_inner[19];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner235_Pre"] = hist_features.gray_inner[20];
+				a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner240_Pre"] = hist_features.gray_inner[21];
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Ready"] = 1;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Feature"] = pseudo_feature;
 		}
