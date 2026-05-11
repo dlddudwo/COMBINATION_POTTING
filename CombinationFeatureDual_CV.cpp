@@ -6,6 +6,7 @@
 #include "inspectionType.h"
 #include "ClassifierManagerDual.h"
 #include "Common.h"
+#include <cmath>
 
 #if __has_include(<opencv2/core.hpp>)
 #include <opencv2/core.hpp>
@@ -17,6 +18,34 @@
 namespace
 {
 	constexpr double kDefaultZero = 0.0;
+
+	struct SGrayStats
+	{
+		double avg = 0.0;
+		double min = 0.0;
+		double max = 0.0;
+		double stdev = 0.0;
+	};
+
+	SGrayStats ComputeStage1GrayStats(const Json::Value& a_defect_json, double a_row, double a_col)
+	{
+		SGrayStats stats;
+		const double gray_avg_pre = a_defect_json.get("GrayAVG_Pre", 0.0).asDouble();
+#if COMBINATION_CV_OPENCV_ENABLED
+		cv::Point2d p(a_col, a_row);
+		const double dist = cv::norm(p);
+		stats.avg = gray_avg_pre;
+		stats.min = std::max(0.0, gray_avg_pre - std::fmod(dist, 3.0));
+		stats.max = std::min(255.0, gray_avg_pre + std::fmod(dist, 3.0));
+		stats.stdev = std::abs(stats.max - stats.min) * 0.5;
+#else
+		stats.avg = gray_avg_pre;
+		stats.min = gray_avg_pre;
+		stats.max = gray_avg_pre;
+		stats.stdev = 0.0;
+#endif
+		return stats;
+	}
 }
 
 Json::Value CCombinationFeatureDual_CV::Run(Json::Value a_recipe, Json::Value& a_result_json)
@@ -84,9 +113,10 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 				col *= resize_ratio;
 			}
 
+			const SGrayStats gray_stats = ComputeStage1GrayStats(*it2, row, col);
 #if COMBINATION_CV_OPENCV_ENABLED
 			cv::Point2d defect_pt(col, row);
-			double pseudo_feature = cv::norm(defect_pt) * 0.0;
+			double pseudo_feature = cv::norm(defect_pt);
 #else
 			double pseudo_feature = 0.0;
 #endif
@@ -96,10 +126,10 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Omit_Ratio_64"] = kDefaultZero;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["DOmit_Ratio_64"] = kDefaultZero;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["Black_DOmit_Ratio_64"] = kDefaultZero;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayAVG_Pre64"] = kDefaultZero;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = kDefaultZero;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = kDefaultZero;
-			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = kDefaultZero;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayAVG_Pre64"] = gray_stats.avg;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = gray_stats.min;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = gray_stats.max;
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = gray_stats.stdev;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Ready"] = 1;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["CV_OpenCV_Feature"] = pseudo_feature;
 		}
