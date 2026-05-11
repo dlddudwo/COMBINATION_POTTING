@@ -10,6 +10,17 @@
 #include "HalconMath.h"
 #include "ClassifierManagerDual.h"
 
+namespace
+{
+	constexpr int kRegion64Dilate = 64;
+	constexpr int kBlobFallbackDilate = 3;
+	constexpr int kGrayHistSize = 256;
+	constexpr int kGrayStart = 135;
+	constexpr int kGrayStep = 5;
+	constexpr int kGrayOverBucketCount = 8;
+	constexpr int kGrayInnerBucketCount = 22;
+}
+
 Json::Value CCombinationFeatureDual_CV::Run(Json::Value a_recipe, Json::Value& a_result_json)
 {
 	CTimeChecker tmc(__FUNCTION__);
@@ -120,7 +131,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			if (blob_region_index < 0)
 			{
 				GenRegionPoints(&extract_region, row, col);
-				DilationRectangle1(extract_region, &extract_region, 3, 3);
+				DilationRectangle1(extract_region, &extract_region, kBlobFallbackDilate, kBlobFallbackDilate);
 			}
 			else
 			{
@@ -128,7 +139,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			}
 
 			GenRegionPoints(&region64, row, col);
-			DilationRectangle1(region64, &region64, 64, 64);
+			DilationRectangle1(region64, &region64, kRegion64Dilate, kRegion64Dilate);
 			Intersection(region64, region_inspection, &region64);
 
 			if (resize_ratio > 0) extract_region_origin = halcon.ResizeRegion(extract_region, resize_ratio);
@@ -198,6 +209,76 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMin_Pre64"] = (double)hv_PreMin64;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayMax_Pre64"] = (double)hv_PreMax64;
 			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GraySTDEV_Pre64"] = (double)hv_PredSd64;
+
+			HTuple hv_AbsHisto_GrayOver, hv_ReHist_GrayOver, hv_AbsHisto_GrayInner, hv_ReHisto_GrayInner;
+			int arrGrayOver[kGrayOverBucketCount];
+			int hist_GrayOver[kGrayHistSize] = { 0 };
+			int cum_step_GrayOver[kGrayHistSize] = { 0 };
+			int hist_GrayInner[kGrayHistSize] = { 0 };
+			int cum_step_GrayInner[kGrayHistSize] = { 0 };
+			int arrGrayInner[kGrayInnerBucketCount];
+
+			int startGray = kGrayStart;
+			GrayHisto(region64, arr_ho_pre_processing[ptn_no - 1], &hv_AbsHisto_GrayOver, &hv_ReHist_GrayOver);
+			GrayHisto(extract_region, arr_ho_pre_processing[ptn_no - 1], &hv_AbsHisto_GrayInner, &hv_ReHisto_GrayInner);
+			for (int i = 0; i < kGrayHistSize; ++i)
+			{
+				hist_GrayOver[i] = hv_AbsHisto_GrayOver[i].I();
+				hist_GrayInner[i] = hv_AbsHisto_GrayInner[i].I();
+				if (i == 0)
+				{
+					cum_step_GrayOver[i] = hist_GrayOver[i];
+					cum_step_GrayInner[i] = hist_GrayInner[i];
+				}
+				else
+				{
+					cum_step_GrayOver[i] = cum_step_GrayOver[i - 1] + hist_GrayOver[i];
+					cum_step_GrayInner[i] = cum_step_GrayInner[i - 1] + hist_GrayInner[i];
+				}
+			}
+			for (int i = 0; i < kGrayOverBucketCount; ++i)
+			{
+				arrGrayOver[i] = cum_step_GrayOver[255] - cum_step_GrayOver[startGray - 1];
+				startGray += kGrayStep;
+			}
+			startGray = kGrayStart;
+			for (int i = 0; i < kGrayInnerBucketCount; ++i)
+			{
+				arrGrayInner[i] = cum_step_GrayInner[255] - cum_step_GrayInner[startGray - 1];
+				startGray += kGrayStep;
+			}
+
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver135_Pre64"] = arrGrayOver[0];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver140_Pre64"] = arrGrayOver[1];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver145_Pre64"] = arrGrayOver[2];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver150_Pre64"] = arrGrayOver[3];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver155_Pre64"] = arrGrayOver[4];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver160_Pre64"] = arrGrayOver[5];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver165_Pre64"] = arrGrayOver[6];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayOver170_Pre64"] = arrGrayOver[7];
+
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner135_Pre"] = arrGrayInner[0];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner140_Pre"] = arrGrayInner[1];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner145_Pre"] = arrGrayInner[2];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner150_Pre"] = arrGrayInner[3];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner155_Pre"] = arrGrayInner[4];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner160_Pre"] = arrGrayInner[5];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner165_Pre"] = arrGrayInner[6];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner170_Pre"] = arrGrayInner[7];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner175_Pre"] = arrGrayInner[8];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner180_Pre"] = arrGrayInner[9];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner185_Pre"] = arrGrayInner[10];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner190_Pre"] = arrGrayInner[11];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner195_Pre"] = arrGrayInner[12];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner200_Pre"] = arrGrayInner[13];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner205_Pre"] = arrGrayInner[14];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner210_Pre"] = arrGrayInner[15];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner215_Pre"] = arrGrayInner[16];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner220_Pre"] = arrGrayInner[17];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner225_Pre"] = arrGrayInner[18];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner230_Pre"] = arrGrayInner[19];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner235_Pre"] = arrGrayInner[20];
+			a_result_json[ptn_no - 1]["DEFECT"][defect_index]["GrayInner240_Pre"] = arrGrayInner[21];
 		}
 	}
 }
