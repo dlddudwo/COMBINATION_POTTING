@@ -6,6 +6,7 @@
 #include "inspectionType.h"
 #include "ClassifierManagerDual.h"
 #include "Common.h"
+#include "CombinationFeatureDual_CV_InputProvider.h"
 #include <cmath>
 
 #if __has_include(<opencv2/core.hpp>)
@@ -144,9 +145,21 @@ namespace
 	}
 
 	// Patch-2: core omit and gray feature core
-	void RunPatch2CoreFeatures(const Json::Value& a_defect_json, double a_row, double a_col, SPatchPipelineOutput& a_out)
+	void RunPatch2CoreFeatures(const Json::Value& a_defect_json, double a_row, double a_col, const SCombinationDualCvInput& a_input, SPatchPipelineOutput& a_out)
 	{
+#if COMBINATION_CV_OPENCV_ENABLED
+		if (a_input.valid == true && a_input.img_pre.empty() == false)
+		{
+			const cv::Scalar mean_pre = cv::mean(a_input.img_pre);
+			Json::Value defect_copy = a_defect_json;
+			defect_copy["GrayAVG_Pre"] = mean_pre[0];
+			a_out.gray_stats = ComputeStage1GrayStats(defect_copy, a_row, a_col);
+		}
+		else
+#endif
+		{
 		a_out.gray_stats = ComputeStage1GrayStats(a_defect_json, a_row, a_col);
+		}
 		a_out.omit_features = ComputeStage2OmitFeatures(a_defect_json);
 	}
 
@@ -271,7 +284,9 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 
 			double row = (*it2)["Row"].asDouble();
 			double col = (*it2)["Column"].asDouble();
-			const int resize_ratio = (*it2)["Resize_Ratio"].asDouble();
+				const int resize_ratio = (*it2)["Resize_Ratio"].asDouble();
+				CCombinationFeatureDualCvInputProvider input_provider;
+				const SCombinationDualCvInput cv_input = input_provider.GetInput(a_ctx.panel_id, a_ctx.cam_index, pattern_index);
 
 				SPatchPipelineOutput patch_out;
 				RunPatch1InputNormalization(row, col, resize_ratio);
@@ -281,7 +296,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 #else
 				double pseudo_feature = 0.0;
 #endif
-				RunPatch2CoreFeatures(*it2, row, col, patch_out);
+				RunPatch2CoreFeatures(*it2, row, col, cv_input, patch_out);
 				RunPatch3HistogramFeatures(patch_out);
 				RunPatch4MetaFeatures(*it2, pseudo_feature, patch_out);
 				RunPatch5WriteBack(a_result_json, ptn_no, defect_index, patch_out);
