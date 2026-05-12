@@ -6,7 +6,6 @@
 #include "inspectionType.h"
 #include "ClassifierManagerDual.h"
 #include "Common.h"
-#include "CombinationFeatureDual_CV_InputProvider.h"
 #include <cmath>
 
 #if __has_include(<opencv2/core.hpp>)
@@ -15,6 +14,33 @@
 #else
 #define COMBINATION_CV_OPENCV_ENABLED 0
 #endif
+
+#if __has_include(<opencv2/core.hpp>)
+struct SCombinationDualCvInput
+{
+	cv::Mat img_pre;
+	cv::Mat img_ori;
+	cv::Mat mask_omit;
+	cv::Mat mask_domit;
+	cv::Mat mask_black_domit;
+	bool valid = false;
+};
+#else
+struct SCombinationDualCvInput
+{
+	bool valid = false;
+};
+#endif
+
+static SCombinationDualCvInput GetCvInput(const std::string& a_panel_id, int a_cam_index, int a_pattern_index)
+{
+	UNREFERENCED_PARAMETER(a_panel_id);
+	UNREFERENCED_PARAMETER(a_cam_index);
+	UNREFERENCED_PARAMETER(a_pattern_index);
+	SCombinationDualCvInput input;
+	input.valid = false;
+	return input;
+}
 
 namespace
 {
@@ -285,8 +311,7 @@ void CCombinationFeatureDual_CV::ProcessPatterns(const Json::Value& a_recipe, Js
 			double row = (*it2)["Row"].asDouble();
 			double col = (*it2)["Column"].asDouble();
 				const int resize_ratio = (*it2)["Resize_Ratio"].asDouble();
-				CCombinationFeatureDualCvInputProvider input_provider;
-				const SCombinationDualCvInput cv_input = input_provider.GetInput(a_ctx.panel_id, a_ctx.cam_index, pattern_index);
+				const SCombinationDualCvInput cv_input = GetCvInput(a_ctx.panel_id, a_ctx.cam_index, pattern_index);
 
 				SPatchPipelineOutput patch_out;
 				RunPatch1InputNormalization(row, col, resize_ratio);
