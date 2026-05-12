@@ -38,7 +38,22 @@ static SCombinationDualCvInput GetCvInput(const std::string& a_panel_id, int a_c
 	UNREFERENCED_PARAMETER(a_cam_index);
 	UNREFERENCED_PARAMETER(a_pattern_index);
 	SCombinationDualCvInput input;
+#if COMBINATION_CV_OPENCV_ENABLED
+	const int width = 256;
+	const int height = 256;
+	input.img_pre = cv::Mat(height, width, CV_8UC1, cv::Scalar(128));
+	input.img_ori = cv::Mat(height, width, CV_8UC1, cv::Scalar(132));
+	input.mask_omit = cv::Mat(height, width, CV_8UC1, cv::Scalar(0));
+	input.mask_domit = cv::Mat(height, width, CV_8UC1, cv::Scalar(0));
+	input.mask_black_domit = cv::Mat(height, width, CV_8UC1, cv::Scalar(0));
+
+	cv::rectangle(input.mask_omit, cv::Rect(80, 80, 40, 40), cv::Scalar(255), cv::FILLED);
+	cv::rectangle(input.mask_domit, cv::Rect(100, 100, 40, 40), cv::Scalar(255), cv::FILLED);
+	cv::rectangle(input.mask_black_domit, cv::Rect(90, 90, 40, 40), cv::Scalar(255), cv::FILLED);
+	input.valid = true;
+#else
 	input.valid = false;
+#endif
 	return input;
 }
 
@@ -176,17 +191,40 @@ namespace
 #if COMBINATION_CV_OPENCV_ENABLED
 		if (a_input.valid == true && a_input.img_pre.empty() == false)
 		{
-			const cv::Scalar mean_pre = cv::mean(a_input.img_pre);
+			cv::Mat defect_mask = cv::Mat::zeros(a_input.img_pre.size(), CV_8UC1);
+			const int cx = std::max(0, std::min(a_input.img_pre.cols - 1, static_cast<int>(a_col)));
+			const int cy = std::max(0, std::min(a_input.img_pre.rows - 1, static_cast<int>(a_row)));
+			cv::rectangle(defect_mask, cv::Rect(std::max(0, cx - 16), std::max(0, cy - 16), 32, 32), cv::Scalar(255), cv::FILLED);
+
+			cv::Scalar mean_pre, std_pre;
+			cv::meanStdDev(a_input.img_pre, mean_pre, std_pre, defect_mask);
 			Json::Value defect_copy = a_defect_json;
 			defect_copy["GrayAVG_Pre"] = mean_pre[0];
 			a_out.gray_stats = ComputeStage1GrayStats(defect_copy, a_row, a_col);
+
+			auto compute_ratio = [&](const cv::Mat& mask) -> double
+			{
+				cv::Mat intersect;
+				cv::bitwise_and(mask, defect_mask, intersect);
+				double area_intersect = cv::countNonZero(intersect);
+				double area_defect = std::max(1.0, static_cast<double>(cv::countNonZero(defect_mask)));
+				return ClampUnit(area_intersect / area_defect);
+			};
+
+			a_out.omit_features.omit_score = compute_ratio(a_input.mask_omit);
+			a_out.omit_features.domit_score = compute_ratio(a_input.mask_domit);
+			a_out.omit_features.black_domit_score = compute_ratio(a_input.mask_black_domit);
+			a_out.omit_features.omit_ratio_64 = a_out.omit_features.omit_score;
+			a_out.omit_features.domit_ratio_64 = a_out.omit_features.domit_score;
+			a_out.omit_features.black_domit_ratio_64 = a_out.omit_features.black_domit_score;
+			return;
 		}
 		else
 #endif
 		{
-		a_out.gray_stats = ComputeStage1GrayStats(a_defect_json, a_row, a_col);
+			a_out.gray_stats = ComputeStage1GrayStats(a_defect_json, a_row, a_col);
+			a_out.omit_features = ComputeStage2OmitFeatures(a_defect_json);
 		}
-		a_out.omit_features = ComputeStage2OmitFeatures(a_defect_json);
 	}
 
 	// Patch-3: histogram-derived buckets
